@@ -100,6 +100,9 @@ def define_operational_constraints_for_extendables(
     attr : str
         name of the attribute, e.g. 'p'
     """
+    lhs_lower: DataArray | tuple
+    lhs_upper: DataArray | tuple
+
     ext_i = n.get_extendable_i(c)
     com_i = n.get_committable_i(c)
     mod_i = n.df(c).query(f"({nominal_attrs[c]}_mod>0)").index
@@ -165,6 +168,7 @@ def define_committability_variables_constraints_with_fixed_upper_limit(
 
     ##############################################################
     # rhs is initially filled for committable components, with modularity declared but not extendable. rhs = p_nom/p_nom_mod
+
     com_i = n.get_committable_i(c)
     fix_i = n.df(c).query(f"not {attr}_extendable").index
     mod_i = n.df(c).query(f"({attr}_mod>0)").index
@@ -175,8 +179,6 @@ def define_committability_variables_constraints_with_fixed_upper_limit(
         return
 
     if not inter_i.empty:
-        m = n.model
-
         n_mod = n.df(c)[attr].loc[inter_i] / n.df(c)[attr + "_mod"].loc[inter_i]
         diff_n_mod = abs(n_mod - round(n_mod))
         non_integers_n_mod_i = diff_n_mod[diff_n_mod > 10**-6].index
@@ -196,22 +198,20 @@ def define_committability_variables_constraints_with_fixed_upper_limit(
     ##############################################################
     # rhs is completed with element "1" for combinable components, but not modular. rhs = 1
 
-    com_i = n.get_committable_i(c)
-    mod_i = n.df(c).query(f"({attr}_mod>0)").index
-    com_i = com_i.difference(mod_i).rename(com_i.name)
+    inter_i2 = com_i.difference(mod_i).rename(com_i.name)
 
-    if not com_i.empty:
+    if not inter_i2.empty:
         if not inter_i.empty:
-            rhs = rhs.reindex(columns=rhs.columns.union(com_i))
-            rhs.loc[:, com_i] = 1
+            rhs = rhs.reindex(columns=rhs.columns.union(inter_i2))
+            rhs.loc[:, inter_i2] = 1
 
-            inter_i = inter_i.union(com_i).rename(com_i.name)
+            inter_i = inter_i.union(inter_i2).rename(inter_i2.name)
 
         else:
-            rhs = pd.DataFrame(0, sns, com_i)
-            rhs.loc[sns, com_i] = 1
+            rhs = pd.DataFrame(0, sns, inter_i2)
+            rhs.loc[sns, inter_i2] = 1
 
-            inter_i = com_i
+            inter_i = inter_i2
 
     #################################################################
 
@@ -374,12 +374,12 @@ def define_operational_constraints_for_committables(
         initially_down = down_time_before_set.astype(bool)
 
     # lower dispatch level limit
-    lhs = (1, p), (-lower_p, status)
-    n.model.add_constraints(lhs, ">=", 0, name=f"{c}-com-p-lower", mask=active)
+    lhs_tuple = (1, p), (-lower_p, status)
+    n.model.add_constraints(lhs_tuple, ">=", 0, name=f"{c}-com-p-lower", mask=active)
 
     # upper dispatch level limit
-    lhs = (1, p), (-upper_p, status)
-    n.model.add_constraints(lhs, "<=", 0, name=f"{c}-com-p-upper", mask=active)
+    lhs_tuple = (1, p), (-upper_p, status)
+    n.model.add_constraints(lhs_tuple, "<=", 0, name=f"{c}-com-p-upper", mask=active)
 
     # state-transition constraint
     rhs = pd.DataFrame(0, sns, inter_i)
